@@ -1,12 +1,8 @@
-﻿using System.ComponentModel.DataAnnotations;
-
-namespace PropidadesApiMinimal.Models
+﻿namespace PropidadesApiMinimal.Models.DTo
 {
-    public class Propiedad
+    public class ActualizarPropiedadDto
     {
-        [Key]
         public int IdPropiedad { get; set; }
-
         public string Nombre { get; set; }
 
         public string Descripcion { get; set; }
@@ -14,7 +10,5 @@ namespace PropidadesApiMinimal.Models
         public string Ubicacion { get; set; }
 
         public bool Activa { get; set; }
-
-        public DateTime? FechaCreacion { get; set; }
     }
 }

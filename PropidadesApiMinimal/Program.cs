@@ -5,8 +5,14 @@ using PropidadesApiMinimal.Mapper;
 using PropidadesApiMinimal.Models;
 using PropidadesApiMinimal.Models.DTo;
 using FluentValidation;
+using System.Net;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configurar conexion
+
+builder.Services.AddDbContext<ApplicationDbContext>(opciones => opciones.UseSqlServer(builder.Configuration.GetConnectionString("ConexionSql")));
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -29,36 +35,55 @@ if (app.Environment.IsDevelopment())
 }
 
 //Obtener todas las propiedades - GET - MapGet
-app.MapGet("/api/propiedades", (ILogger<Program> logger) =>
+app.MapGet("/api/propiedades", async (ApplicationDbContext context, ILogger<Program> logger) =>
 {
+    RespuestasApi respuestasApi = new ();
     // Usar el logger que ya está como inyección las dependencias
     logger.Log(LogLevel.Information, "Carga todas las propiedades");
 
-    return Results.Ok(DatosPropiedad.listaPropiedades);
-}).WithName("ObtenerPropiedades").Produces<Propiedad>(201);
+    respuestasApi.Resultado = await context.propiedads.ToListAsync();
+    respuestasApi.Success = true;
+    respuestasApi.statusCode =  HttpStatusCode.OK;
+
+    return Results.Ok(respuestasApi);
+}).WithName("ObtenerPropiedades").Produces<RespuestasApi>(200);
 
 //Obtener propiedad individual - GET - MapGet
-app.MapGet("/api/propiedades/{id:int}", (int id) =>
+app.MapGet("/api/propiedades/{id:int}", async (ApplicationDbContext context, int id) =>
 {
-    return Results.Ok(DatosPropiedad.listaPropiedades.FirstOrDefault(p => p.IdPropiedad == id));
-}).WithName("ObtenerPropiedad").Produces<Propiedad>(201);
+    RespuestasApi respuestasApi = new ();
+
+    respuestasApi.Resultado = await context.propiedads.FirstOrDefaultAsync(p => p.IdPropiedad == id);
+    respuestasApi.Success = true;
+    respuestasApi.statusCode= HttpStatusCode.OK;    
+
+    return Results.Ok(respuestasApi);
+}).WithName("ObtenerPropiedad").Produces<RespuestasApi>(200);
 
 
 //Crear propiedad 
 
-app.MapPost("/api/propiedades", (IMapper mapper, IValidator<CrearPropiedadDto> validator, [FromBody] CrearPropiedadDto crearPropiedad) =>
+app.MapPost("/api/propiedades", async (ApplicationDbContext context, IMapper mapper, IValidator<CrearPropiedadDto> validator, [FromBody] CrearPropiedadDto crearPropiedad) =>
 {
-    var result = validator.ValidateAsync(crearPropiedad).GetAwaiter().GetResult();
+    RespuestasApi respuestasApi = new()
+    {
+        Success = false,
+        statusCode = HttpStatusCode.BadRequest
+
+    };
+    var result = await validator.ValidateAsync(crearPropiedad);
 
     // Validar id de propiedad y que el nombre no esté vacio
     if (!result.IsValid)
     {
-        return Results.BadRequest(result.Errors. FirstOrDefault().ToString);
+        respuestasApi.Errores.Add(result.Errors.FirstOrDefault().ToString());
+        return Results.BadRequest(respuestasApi);
     }
 
-    if (DatosPropiedad.listaPropiedades.FirstOrDefault(p => p.Nombre.ToLower() == crearPropiedad.Nombre.ToLower()) != null)
+    if (await context.propiedads.FirstOrDefaultAsync(p => p.Nombre.ToLower() == crearPropiedad.Nombre.ToLower()) != null)
     {
-        return Results.BadRequest("El nombre de la propiedad ya existe");
+        respuestasApi.Errores.Add(result.Errors.FirstOrDefault().ToString());
+        return Results.BadRequest(respuestasApi);
     }
 
     //Propiedad propiedad = new()
@@ -71,8 +96,11 @@ app.MapPost("/api/propiedades", (IMapper mapper, IValidator<CrearPropiedadDto> v
 
     Propiedad propiedad = mapper.Map<Propiedad>(crearPropiedad);
 
-    propiedad.IdPropiedad = DatosPropiedad.listaPropiedades.OrderByDescending(p => p.IdPropiedad).FirstOrDefault().IdPropiedad + 1;
-    DatosPropiedad.listaPropiedades.Add(propiedad);
+    //propiedad.IdPropiedad = DatosPropiedad.listaPropiedades.OrderByDescending(p => p.IdPropiedad).FirstOrDefault().IdPropiedad + 1;
+    await context.propiedads.AddAsync(propiedad);
+    await context.SaveChangesAsync();
+
+    //DatosPropiedad.listaPropiedades.Add(propiedad);
     //return Results.Ok(DatosPropiedad.listaPropiedades);   
     //return Results.Created($"/api/propiedades/{propiedad.IdPropiedad}", propiedad);
     //PropiedadDto propiedadDto = new()
@@ -85,10 +113,89 @@ app.MapPost("/api/propiedades", (IMapper mapper, IValidator<CrearPropiedadDto> v
     //};
     PropiedadDto propiedadDto = mapper.Map<PropiedadDto>(propiedad);
 
-    return Results.CreatedAtRoute("ObtenerPropiedad", new { id = propiedadDto.IdPropiedad }, propiedadDto);
-}).WithName("CrearPropiedad").Produces<Propiedad>(201).Produces(400);
+    //return Results.CreatedAtRoute("ObtenerPropiedad", new { id = propiedadDto.IdPropiedad }, propiedadDto);
 
+    respuestasApi.Resultado = propiedadDto;
+    respuestasApi.Success = true;
+    respuestasApi.statusCode = HttpStatusCode.Created;
+
+    return Results.Ok(respuestasApi);
+
+}).WithName("CrearPropiedad").Produces<RespuestasApi>(201).Produces(400);
+
+
+//Actualizar
+
+app.MapPut("/api/propiedades", async (ApplicationDbContext context, IMapper mapper, IValidator<ActualizarPropiedadDto> validator, [FromBody] ActualizarPropiedadDto actualizarPropiedadDto) =>
+{
+    RespuestasApi respuestasApi = new()
+    {
+        Success = false,
+        statusCode = HttpStatusCode.BadRequest
+
+    };
+    var result = await validator.ValidateAsync(actualizarPropiedadDto);
+
+    // Validar id de propiedad y que el nombre no esté vacio
+    if (!result.IsValid)
+    {
+        respuestasApi.Errores.Add(result.Errors.FirstOrDefault().ToString());
+        return Results.BadRequest(respuestasApi);
+    }
+
+    if (await context.propiedads.FirstOrDefaultAsync(p => p.Nombre.ToLower() == actualizarPropiedadDto.Nombre.ToLower()) != null)
+    {
+        respuestasApi.Errores.Add(result.Errors.FirstOrDefault().ToString());
+        return Results.BadRequest(respuestasApi);
+    }
+
+    Propiedad propiedadBD = await context.propiedads.FirstOrDefaultAsync(p => p.IdPropiedad == actualizarPropiedadDto.IdPropiedad);
+    propiedadBD.Nombre = actualizarPropiedadDto.Nombre;
+    propiedadBD.Descripcion = actualizarPropiedadDto.Descripcion;
+    propiedadBD.Ubicacion = actualizarPropiedadDto.Ubicacion;
+    propiedadBD.Activa = actualizarPropiedadDto.Activa;
+
+    await context.SaveChangesAsync();
+
+
+    respuestasApi.Resultado = mapper.Map<PropiedadDto>(propiedadBD); ;
+    respuestasApi.Success = true;
+    respuestasApi.statusCode = HttpStatusCode.Created;
+
+    return Results.Ok(respuestasApi);
+
+}).WithName("ActualizarPropiedad").Produces<RespuestasApi>(200).Produces(400);
+
+//Eliminar Propiedad
+
+app.MapDelete("/api/propiedades/{id:int}", async (ApplicationDbContext context, int id) =>
+{
+    RespuestasApi respuestasApi = new()
+    {
+        Success = false,
+        statusCode = HttpStatusCode.BadRequest
+    };
+
+    Propiedad propiedad = await context.propiedads.FirstOrDefaultAsync(p => p.IdPropiedad == id);
+
+    if (propiedad != null)
+    {
+        context.propiedads.Remove(propiedad);
+        await context.SaveChangesAsync();
+        respuestasApi.Success = true;
+        respuestasApi.statusCode = HttpStatusCode.NoContent;
+        return Results.Ok(respuestasApi);
+    }
+    else
+    {
+        respuestasApi.Errores.Add("El ID de la propiedad no existe");
+        return Results.BadRequest(respuestasApi);
+    }
+
+
+
+});
 
 app.UseHttpsRedirection();
-app.Run();-
+app.Run();
 
